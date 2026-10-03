@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Merger for the worktrunk herdr plugin — fzf over mergeable worktrees, then
-# `wt merge` into the target branch and `wt remove`. Plain bash, shell-agnostic: it
-# calls the `wt` binary directly, so it needs no shell-function/rc integration.
+# `wt merge` back into the branch each one was created from and `wt remove`.
+# Plain bash, shell-agnostic: it calls the `wt` binary directly, so it needs no
+# shell-function/rc integration.
 
 if ! command -v fzf >/dev/null; then
   printf '\033[31m%s\033[0m\n' "fzf not found on PATH"; sleep 2; exit 1
@@ -54,7 +55,7 @@ fi
 # merge_flags and another's.
 name=$(printf '%s\n' "$cands" \
   | worktrunk_pick_branch 'merge worktree ❯ ' \
-      "↵ to run wt merge${merge_flags[*]:+ ${merge_flags[*]}} and remove the worktree · esc to cancel")
+      "↵ to merge into its creation base${merge_flags[*]:+ with ${merge_flags[*]}} and remove the worktree · esc to cancel")
 [[ -z $name ]] && exit 0      # esc / no selection → cancel
 
 # Path and native herdr workspace (if open) of the worktree we're about to merge.
@@ -63,13 +64,40 @@ wtpath=$(printf '%s\n' "$wtitems" | worktrunk_worktree_path "$name")
 wsid=$(worktrunk_open_workspace_id "$wtpath")
 mainpath=$(printf '%s\n' "$wtitems" | worktrunk_main_worktree_path)
 
+# Git does not store a branch's parent as graph metadata, but worktrunk creates a
+# branch with an oldest reflog entry of `branch: Created from <base>`. Refuse to
+# guess when that entry is absent or has another form: silently falling back to
+# the default branch would put a nested task into the wrong part of the branch
+# tree.
+creation=$(git -C "$wtpath" reflog show --format='%gs' "refs/heads/$name" 2>/dev/null | tail -n1)
+case $creation in
+  "branch: Created from "*) base=${creation#"branch: Created from "} ;;
+  *)
+    printf '\033[31m%s\033[0m press any key to close' \
+      "cannot determine creation base for $name (missing or unsupported branch reflog)."
+    read -n1
+    exit 0
+    ;;
+esac
+
+# A remote-tracking ref or another revision with the same spelling is not enough:
+# wt merge updates a local target branch. If that branch has gone away, stop rather
+# than recreating it or choosing a different target implicitly.
+if ! git -C "$wtpath" show-ref --verify --quiet "refs/heads/$base"; then
+  printf '\033[31m%s\033[0m press any key to close' \
+    "base branch $base for $name no longer exists locally."
+  read -n1
+  exit 0
+fi
+
 # -C runs the merge as if from the picked worktree, so the pane never has to be in
-# it. --no-remove because wt merge's own removal runs in the background, which would
-# race the workspace close below; the foreground `wt remove` further down does it.
-# wt merge stages, commits, squashes and rebases per its flags, runs pre-commit and
-# pre-merge hooks, and stops on conflicts — so run it interactively and let
+# it. The explicit target sends the branch back to its creation base instead of
+# worktrunk's default branch. --no-remove keeps wt merge's background removal from
+# racing the workspace close below; the foreground `wt remove` further down does
+# it. wt merge stages, commits, squashes and rebases per its flags, runs pre-commit
+# and pre-merge hooks, and stops on conflicts — so run it interactively and let
 # worktrunk gate all of that.
-if ! wt merge --no-remove -C "$wtpath" "${merge_flags[@]}"; then
+if ! wt merge --no-remove -C "$wtpath" "${merge_flags[@]}" "$base"; then
   printf '\n\033[31m%s\033[0m press any key to close' "wt merge failed (see above)."; read -n1
   exit 0
 fi
@@ -83,5 +111,5 @@ if ! wt remove --foreground -C "$mainpath" "$name"; then
   exit 0
 fi
 
-worktrunk_hold_pane merge "merged $name and removed the worktree."
+worktrunk_hold_pane merge "merged $name into $base and removed the worktree."
 worktrunk_close_worktree_ui "$wsid" "$wtpath"

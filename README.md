@@ -50,11 +50,15 @@ opens as a tab or a native worktree workspace according to plugin configuration.
   deleted worktree are closed automatically.
 
 - **Worktree: merge into the target branch** — the same picker over removable
-  worktrees, then `wt merge` on the one you pick, then removal. The native
-  workspace or legacy tab panes are closed once the worktree is gone.
+  worktrees, then `wt merge` on the one you pick, explicitly targeting the local
+  branch it was created from, then removal. This lets nested task worktrees merge
+  back into their feature branch instead of always going to the repository's
+  default branch. The native workspace or legacy tab panes are closed once the
+  worktree is gone.
 
 - **Worktree: merge into the target branch, keeping every commit** — the same
-  merge with `--no-squash`. See [Merge flags](#merge-flags) for the rest.
+  creation-base merge with `--no-squash`. See [Merge flags](#merge-flags) for the
+  rest.
 
 ## Worktree presentation
 
@@ -129,9 +133,15 @@ Existing branches and worktrunk shortcuts are never changed.
 
 ## Merge flags
 
-The merge actions pass no flags to `wt merge` beyond the variant's `--no-squash`.
-To change what every merge does, list flags in `merge_flags` in the same
-`config.toml`:
+The merge actions read the source branch's oldest reflog entry, which Worktrunk
+writes as `branch: Created from <base>`, and pass that base to `wt merge` as its
+explicit target. The base must still exist as a local branch. A missing,
+unrecognized, or deleted base stops the action without merging or removing the
+worktree; it never falls back to the default branch.
+
+Apart from that target, the merge actions pass no flags to `wt merge` beyond the
+variant's `--no-squash`. To change what every merge does, list flags in
+`merge_flags` in the same `config.toml`:
 
 ```toml
 merge_flags = "--no-squash --no-rebase"
