@@ -80,15 +80,22 @@ case $creation in
     ;;
 esac
 
-# A remote-tracking ref or another revision with the same spelling is not enough:
-# wt merge updates a local target branch. If that branch has gone away, stop rather
-# than recreating it or choosing a different target implicitly.
-if ! git -C "$wtpath" show-ref --verify --quiet "refs/heads/$base"; then
+# Worktrunk may record a local creation base either as a short branch name or as
+# its fully qualified refs/heads name (notably when `--base @` was used). Build one
+# exact local ref for validation, then keep the short name for `wt merge` and user
+# messages. A remote-tracking ref or another revision with the same spelling is
+# not enough: wt merge updates a local target branch.
+case $base in
+  refs/heads/*) base_ref=$base ;;
+  *) base_ref="refs/heads/$base" ;;
+esac
+if ! git -C "$wtpath" show-ref --verify --quiet "$base_ref"; then
   printf '\033[31m%s\033[0m press any key to close' \
     "base branch $base for $name no longer exists locally."
   read -n1
   exit 0
 fi
+base=${base_ref#refs/heads/}
 
 # -C runs the merge as if from the picked worktree, so the pane never has to be in
 # it. The explicit target sends the branch back to its creation base instead of

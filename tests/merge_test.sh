@@ -133,6 +133,14 @@ assert_log wt 'remove --foreground -C /repo feature' "$WT_STUB_LOG"
 assert_log herdr 'workspace close ws-feature' "$HERDR_STUB_LOG"
 refute_pane 'press any key to continue'
 
+# `wt switch --create --base @` records a fully qualified local ref. Normalize it
+# before validation and before passing the target back to worktrunk.
+GIT_STUB_REFLOG=$'commit: task work\nbranch: Created from refs/heads/parent/feature' run_merge
+assert_log git '-C /repo.feature show-ref --verify --quiet refs/heads/parent/feature' "$GIT_STUB_LOG"
+assert_log wt 'merge --no-remove -C /repo.feature parent/feature' "$WT_STUB_LOG"
+assert_log wt 'remove --foreground -C /repo feature' "$WT_STUB_LOG"
+assert_log herdr 'workspace close ws-feature' "$HERDR_STUB_LOG"
+
 # The no-squash variant adds its flag; config flags come along too, once each.
 printf 'merge_flags = "--no-rebase"\n' > "$config_dir/config.toml"
 run_merge --no-squash
